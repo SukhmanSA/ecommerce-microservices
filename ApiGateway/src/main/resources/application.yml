@@ -1,0 +1,110 @@
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    gateway:
+      discovery:
+        locator:
+          enabled: true
+          lower-case-service-id: true
+      routes:
+        # User Service Routes
+        - id: user-service
+          uri: lb://user-service
+          predicates:
+            - Path=/auth/**,/users/**
+          filters:
+            - StripPrefix=0
+
+        # Product Service Routes
+        - id: product-service
+          uri: lb://product-service
+          predicates:
+            - Path=/products/**
+          filters:
+            - StripPrefix=0
+
+        # Cart Service Routes
+        - id: cart-service
+          uri: lb://cart-service
+          predicates:
+            - Path=/cart/**
+          filters:
+            - StripPrefix=0
+
+        # Order Service Routes
+        - id: order-service
+          uri: lb://order-service
+          predicates:
+            - Path=/orders/**
+          filters:
+            - StripPrefix=0
+
+        # Search Service Routes - ADD THIS
+        - id: search-service
+          uri: lb://search-service
+          predicates:
+            - Path=/search/**
+          filters:
+            - StripPrefix=0
+
+        # Actuator Routes
+        - id: actuator
+          uri: http://localhost:${server.port}
+          predicates:
+            - Path=/actuator/**
+
+
+# Eureka Configuration
+eureka:
+  client:
+    service-url:
+      defaultZone: http://discovery-service:8761/eureka
+    fetch-registry: true
+    register-with-eureka: true
+  instance:
+    prefer-ip-address: true
+    hostname: localhost
+    instance-id: ${spring.application.name}:${spring.application.instance_id:${random.value}}
+
+# JWT Secret - CORRECTED FORMAT
+JWT_SECRET: your-super-secret-key-that-is-at-least-32-characters-long
+
+# Management endpoints
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus,gateway
+  endpoint:
+    health:
+      show-details: always
+    prometheus:
+      access: read-only
+  metrics:
+    enable:
+      http: true
+      jvm: true
+      logback: true
+      system: true
+    distribution:
+      percentiles-histogram:
+        "[http.server.requests]": true
+    tags:
+      application: ${spring.application.name}
+      environment: ${spring.profiles.active:default}
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+        step: 1m
+
+server:
+  port: 9000
+
+logging:
+  level:
+    com.sukhman.apigateway: DEBUG
+    org.springframework.cloud.gateway: TRACE
+    org.springframework.cloud.loadbalancer: DEBUG
+    org.springframework.web: DEBUG

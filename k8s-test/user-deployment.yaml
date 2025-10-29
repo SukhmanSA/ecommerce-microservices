@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-service
+  namespace: ecommerce
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: user-service
+  template:
+    metadata:
+      labels:
+        app: user-service
+    spec:
+      containers:
+        - name: user-service
+          image: docker.io/sukhman78/ecommerce-test:ecommerce-test-user-service
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8081
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: DB_HOST
+              value: postgres
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_USER
+            - name: DB_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+            - name: DB_NAME
+              value: ecommercedb
+            - name: JWT_SECRET
+              value: your-super-secret-key-that-is-at-least-32-characters-long
+            - name: EUREKA_CLIENT_SERVICEURL_DEFAULTZONE
+              value: http://discovery-service:8761/eureka
+          command: ["sh", "-c", "sleep 25 && node src/index.js"]

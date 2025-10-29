@@ -1,0 +1,104 @@
+name: Microservices CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:14
+        ports:
+          - 5432:5432
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: testdb
+        options: >-
+          --health-cmd="pg_isready -U test"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 🟩 Node.js (User Service)
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+        working-directory: ./UserService
+
+      - name: Install Node.js dependencies
+        run: npm install
+        working-directory: ./UserService
+
+      - name: Run Node.js tests
+        run: npm test --if-present
+        working-directory: ./UserService
+
+      # ☕ Java (Spring Boot microservices)
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Cache Maven packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-m2
+
+      # Build & test all Spring Boot microservices
+      - name: Build and test Product Service
+        run: mvn clean test
+        working-directory: ./ProductService
+
+      - name: Build and test Cart Service
+        run: mvn clean test
+        working-directory: ./CartService
+
+      - name: Build and test Order Service
+        run: mvn clean test
+        working-directory: ./OrderService
+
+      - name: Build and test Discovery Service
+        run: mvn clean test
+        working-directory: ./DiscoveryService
+
+      - name: Build and test API Gateway
+        run: mvn clean test
+        working-directory: ./ApiGateway
+
+      - name: Verify Docker build for User Service
+        run: docker build -t user-service-test .
+        working-directory: ./UserService
+
+      - name: Verify Docker build for Product Service
+        run: docker build -t product-service-test .
+        working-directory: ./ProductService
+
+      - name: Verify Docker build for Cart Service
+        run: docker build -t cart-service-test .
+        working-directory: ./CartService
+
+      - name: Verify Docker build for Order Service
+        run: docker build -t order-service-test .
+        working-directory: ./OrderService
+
+      - name: Verify Docker build for Discovery Service
+        run: docker build -t discovery-service-test .
+        working-directory: ./DiscoveryService
+
+      - name: Verify Docker build for API Gateway
+        run: docker build -t api-gateway-test .
+        working-directory: ./ApiGateway
