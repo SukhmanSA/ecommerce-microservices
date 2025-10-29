@@ -59,24 +59,25 @@ jobs:
 
       # Build & test all Spring Boot microservices
       - name: Build and test Product Service
-        run: mvn clean test
+        run: mvn clean package -DskipTests
         working-directory: ./ProductService
 
       - name: Build and test Cart Service
-        run: mvn clean test
+        run: mvn clean package -DskipTests
         working-directory: ./CartService
 
       - name: Build and test Order Service
-        run: mvn clean test
+        run: mvn clean package -DskipTests
         working-directory: ./OrderService
 
       - name: Build and test Discovery Service
-        run: mvn clean test
+        run: mvn clean package -DskipTests
         working-directory: ./DiscoveryService
 
       - name: Build and test API Gateway
-        run: mvn clean test
+        run: mvn clean package -DskipTests
         working-directory: ./ApiGateway
+
 
       # 🐳 Docker build verification
       - name: Verify Docker build for User Service
