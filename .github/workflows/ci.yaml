@@ -12,13 +12,13 @@ jobs:
 
     services:
       postgres:
-        image: postgres:14
+        image: postgres:15
         ports:
           - 5432:5432
         env:
-          POSTGRES_USER: test
-          POSTGRES_PASSWORD: test
-          POSTGRES_DB: testdb
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: secret
+          POSTGRES_DB: ecommercedb
         options: >-
           --health-cmd="pg_isready -U test"
           --health-interval=10s
@@ -34,7 +34,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 18
-        working-directory: ./UserService
 
       - name: Install Node.js dependencies
         run: npm install
@@ -79,6 +78,7 @@ jobs:
         run: mvn clean test
         working-directory: ./ApiGateway
 
+      # 🐳 Docker build verification
       - name: Verify Docker build for User Service
         run: docker build -t user-service-test .
         working-directory: ./UserService
