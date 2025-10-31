@@ -2,12 +2,12 @@ name: Microservices CI
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main ]
   pull_request:
-    branches: [ main, master ]
+    branches: [ main ]
 
 jobs:
-  build-test:
+  build-test-push:
     runs-on: ubuntu-latest
 
     services:
@@ -57,49 +57,65 @@ jobs:
           key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
           restore-keys: ${{ runner.os }}-m2
 
-      # Build & test all Spring Boot microservices
+      # Build all Spring Boot microservices
       - name: Build and test Product Service
-        run: mvn clean package -DskipTests
+        run: mvn clean verify
         working-directory: ./ProductService
 
       - name: Build and test Cart Service
-        run: mvn clean package -DskipTests
+        run: mvn clean verify
         working-directory: ./CartService
 
       - name: Build and test Order Service
-        run: mvn clean package -DskipTests
+        run: mvn clean verify
         working-directory: ./OrderService
 
       - name: Build and test Discovery Service
-        run: mvn clean package -DskipTests
+        run: mvn clean verify
         working-directory: ./DiscoveryService
 
       - name: Build and test API Gateway
-        run: mvn clean package -DskipTests
+        run: mvn clean verify
         working-directory: ./ApiGateway
 
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
 
-      # 🐳 Docker build verification
-      - name: Verify Docker build for User Service
-        run: docker build -t user-service-test .
+      - name: Build and push User Service
+        run: |
+          docker build -t ${{ secrets.DOCKER_USERNAME }}/ecommerce-deployment:user-service .
+          docker push ${{ secrets.DOCKER_USERNAME }}/ecommerce-deployment:user-service
         working-directory: ./UserService
 
-      - name: Verify Docker build for Product Service
-        run: docker build -t product-service-test .
+      - name: Build and push Product Service
+        run: |
+          docker build -t ${{ secrets.DOCKER_USERNAME }}/ecommerce-deployment:products-service .
+          docker push ${{ secrets.DOCKER_USERNAME }}/ecommerce-deployment:products-service
         working-directory: ./ProductService
 
-      - name: Verify Docker build for Cart Service
-        run: docker build -t cart-service-test .
+      - name: Build and push Cart Service
+        run: |
+          docker build -t ${{ secrets.DOCKER_USERNAME }}/ecommerce-deployment:cart-service .
+          docker push ${{ secrets.DOCKER_USERNAME }}/ecommerce-deployment:cart-service
         working-directory: ./CartService
 
-      - name: Verify Docker build for Order Service
-        run: docker build -t order-service-test .
+      - name: Build and push Order Service
+        run: |
+          docker build -t ${{ secrets.DOCKER_USERNAME }}/ecommerce-deployment:order-service .
+          docker push ${{ secrets.DOCKER_USERNAME }}/ecommerce-deployment:order-service
         working-directory: ./OrderService
 
-      - name: Verify Docker build for Discovery Service
-        run: docker build -t discovery-service-test .
+      - name: Build and push Discovery Service
+        run: |
+          docker build -t ${{ secrets.DOCKER_USERNAME }}/ecommerce-deployment:discovery-service .
+          docker push ${{ secrets.DOCKER_USERNAME }}/ecommerce-deployment:discovery-service
         working-directory: ./DiscoveryService
 
-      - name: Verify Docker build for API Gateway
-        run: docker build -t api-gateway-test .
+      - name: Build and push API Gateway
+        run: |
+          docker build -t ${{ secrets.DOCKER_USERNAME }}/ecommerce-deployment:api-gateway .
+          docker push ${{ secrets.DOCKER_USERNAME }}/ecommerce-deployment:api-gateway
         working-directory: ./ApiGateway

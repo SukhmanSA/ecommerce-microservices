@@ -21,3 +21,6 @@ build_service "OrderService"
 # build_service "ApiGateway"
 
 echo "All services built successfully!"
+
+# docker build -t sukhman78/ecommerce-repo:ecommerce-order-service .
+# docker push sukhman78/ecommerce-repo:ecommerce-user-service 
