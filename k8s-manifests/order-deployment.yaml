@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: order-service
-          image: docker.io/sukhman78/ecommerce-test:ecommerce-test-order-service
+          image: docker.io/sukhman78/ecommerce-deployment:order-service
           imagePullPolicy: Always
           ports:
             - containerPort: 8084

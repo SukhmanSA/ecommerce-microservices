@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: products-service
-          image: docker.io/sukhman78/ecommerce-test:ecommerce-test-products-service
+          image: docker.io/sukhman78/ecommerce-deployment:products-service
           imagePullPolicy: Always
           ports:
             - containerPort: 8082

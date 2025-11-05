@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: discovery-service
-          image: docker.io/sukhman78/ecommerce-test:ecommerce-test-discovery-service
+          image: docker.io/sukhman78/ecommerce-deployment:discovery-service
           ports:
             - containerPort: 8761
           env:

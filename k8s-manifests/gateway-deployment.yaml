@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: api-gateway
-          image: docker.io/sukhman78/ecommerce-test:ecommerce-test-api-gateway
+          image: docker.io/sukhman78/ecommerce-deployment:api-gateway
           ports:
             - containerPort: 9000
           env:
