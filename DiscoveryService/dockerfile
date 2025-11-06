@@ -1,4 +1,4 @@
-FROM eclipse-temurin:17-jre-alpine
+FROM public.ecr.aws/docker/library/eclipse-temurin:17-jre-alpine
 VOLUME /tmp
 COPY target/*.jar app.jar
 ENTRYPOINT ["java", "-jar", "/app.jar"]
