@@ -10,7 +10,7 @@ data:
       groups:
         - system:bootstrappers
         - system:nodes
-    - rolearn: arn:aws:iam::719742385367:role/service-role/codebuild-ecommerce-build-service-role
+    - rolearn: arn:aws:iam::719742385367:role/CodeBuildEcommerceRole
       username: codebuild
       groups:
         - system:masters
