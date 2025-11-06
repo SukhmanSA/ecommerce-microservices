@@ -13,7 +13,6 @@ app.get("/health", (req, res) => {
 });
 
 if (process.env.NODE_ENV !== "test") {
-  // Only start the service normally outside of tests
   setTimeout(() => {
     eurekaClient.start((error) => {
       if (error) {
@@ -32,4 +31,4 @@ if (process.env.NODE_ENV !== "test") {
   });
 }
 
-module.exports = app; // Export for tests
+module.exports = app; 
