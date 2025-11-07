@@ -1,0 +1,115 @@
+version: 0.2
+
+env:
+  variables:
+    AWS_ACCOUNT_ID: "719742385367"
+    AWS_DEFAULT_REGION: "ap-south-1"
+    ECR_REPO: "ecommerce"
+    MANIFESTS_REPO: "SukhmanSA/ecommerce-K8s-manifests"
+    IMAGE_TAG: "${CODEBUILD_RESOLVED_SOURCE_VERSION:0:7}"
+
+phases:
+  install:
+    runtime-versions:
+      nodejs: 18
+      java: corretto17
+    commands:
+      - echo "Installing dependencies..."
+      # Install Maven
+      - wget https://archive.apache.org/dist/maven/maven-3/3.9.5/binaries/apache-maven-3.9.5-bin.tar.gz
+      - tar xzf apache-maven-3.9.5-bin.tar.gz -C /opt
+      - ln -s /opt/apache-maven-3.9.5 /opt/maven
+      - export PATH=/opt/maven/bin:$PATH
+      - mvn --version
+      
+      # Install yq for YAML manipulation
+      - wget https://github.com/mikefarah/yq/releases/download/v4.35.1/yq_linux_amd64 -O /usr/local/bin/yq
+      - chmod +x /usr/local/bin/yq
+      - yq --version
+      
+      - aws --version
+      - docker --version
+
+  pre_build:
+    commands:
+      - echo "Logging into Amazon ECR..."
+      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com
+      
+      - echo "Creating temp directory for image metadata..."
+      - mkdir -p /tmp/images
+      
+      - echo "Image tag will be ${IMAGE_TAG}"
+
+  build:
+    commands:
+      - echo "Building JARs for Java microservices..."
+      - |
+        export PATH=/opt/maven/bin:$PATH
+        services=(ProductService CartService OrderService DiscoveryService ApiGateway)
+        for svc in "${services[@]}"; do
+          if [ -d "$svc" ]; then
+            echo "==> Packaging $svc"
+            cd $svc
+            mvn clean package -DskipTests
+            cd ..
+          else
+            echo "WARNING: Directory $svc not found"
+          fi
+        done
+
+      - echo "Building and pushing Docker images..."
+      - |
+        services=(UserService ProductService CartService OrderService DiscoveryService ApiGateway)
+        for svc in "${services[@]}"; do
+          if [ -d "$svc" ]; then
+            echo "==> Building $svc"
+            svc_lc=$(echo $svc | tr '[:upper:]' '[:lower:]')
+            image="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${ECR_REPO}:${svc_lc}-${IMAGE_TAG}"
+            
+            docker build -t "$image" "./$svc"
+            docker push "$image"
+            
+            # Save image info for manifest update
+            echo "${svc_lc}=${image}" >> /tmp/images/manifest-updates.txt
+          else
+            echo "WARNING: Directory $svc not found"
+          fi
+        done
+
+  post_build:
+    commands:
+      - echo "Post build phase starting..."
+      
+      - echo "Cloning manifests repository via HTTPS..."
+      - git clone https://${GITHUB_TOKEN}@github.com/${MANIFESTS_REPO}.git manifests
+      - cd manifests
+      
+      - echo "Configuring git..."
+      - git config user.email "ci-bot@codebuild.aws"
+      - git config user.name "AWS CodeBuild"
+      
+      - echo "Updating Kubernetes manifests..."
+      - |
+        while IFS='=' read -r service image; do
+          echo "Updating $service to $image"
+          
+          # Files are directly in root of repo
+          manifest_file="${service}-deployment.yaml"
+          
+          if [ -f "$manifest_file" ]; then
+            yq eval ".spec.template.spec.containers[0].image = \"$image\"" -i "$manifest_file"
+            echo "✓ Updated $manifest_file"
+          else
+            echo "⚠ Manifest file not found: $manifest_file"
+            # List all yaml files to help debug
+            echo "Available YAML files:"
+            ls -la *.yaml 2>/dev/null || echo "No .yaml files found"
+            ls -la *.yml 2>/dev/null || echo "No .yml files found"
+          fi
+        done < /tmp/images/manifest-updates.txt
+      
+      - echo "Committing and pushing changes..."
+      - git add .
+      - git diff --staged --stat
+      - git commit -m "Update images to tag ${IMAGE_TAG} [skip ci]" || echo "No changes to commit"
+      - git push https://${GITHUB_TOKEN}@github.com/${MANIFESTS_REPO}.git main
