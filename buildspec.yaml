@@ -6,7 +6,6 @@ env:
     AWS_DEFAULT_REGION: "ap-south-1"
     ECR_REPO: "ecommerce"
     MANIFESTS_REPO: "SukhmanSA/ecommerce-K8s-manifests"
-    IMAGE_TAG: "${CODEBUILD_RESOLVED_SOURCE_VERSION:0:7}"
 
 phases:
   install:
@@ -34,14 +33,15 @@ phases:
     commands:
       - echo "Logging into Amazon ECR..."
       - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com
-      
       - echo "Creating temp directory for image metadata..."
       - mkdir -p /tmp/images
-      
-      - echo "Image tag will be ${IMAGE_TAG}"
 
   build:
     commands:
+      - echo "Setting IMAGE_TAG..."
+      - IMAGE_TAG=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c1-7)
+      - echo "IMAGE_TAG=$IMAGE_TAG"
+
       - echo "Building JARs for Java microservices..."
       - |
         export PATH=/opt/maven/bin:$PATH
@@ -79,35 +79,35 @@ phases:
   post_build:
     commands:
       - echo "Post build phase starting..."
-      
+
       - echo "Cloning manifests repository via HTTPS..."
       - git clone https://${GITHUB_TOKEN}@github.com/${MANIFESTS_REPO}.git manifests
       - cd manifests
-      
+
       - echo "Configuring git..."
       - git config user.email "ci-bot@codebuild.aws"
       - git config user.name "AWS CodeBuild"
-      
+
       - echo "Updating Kubernetes manifests..."
       - |
+        declare -A manifests
+        manifests=( ["userservice"]="user-deployment.yaml"
+                    ["productservice"]="products-deployment.yaml"
+                    ["cartservice"]="cart-deployment.yaml"
+                    ["orderservice"]="order-deployment.yaml"
+                    ["discoveryservice"]="discovery-deployment.yaml"
+                    ["apigateway"]="gateway-deployment.yaml" )
+
         while IFS='=' read -r service image; do
-          echo "Updating $service to $image"
-          
-          # Files are directly in root of repo
-          manifest_file="${service}-deployment.yaml"
-          
+          manifest_file="${manifests[$service]}"
           if [ -f "$manifest_file" ]; then
             yq eval ".spec.template.spec.containers[0].image = \"$image\"" -i "$manifest_file"
             echo "✓ Updated $manifest_file"
           else
             echo "⚠ Manifest file not found: $manifest_file"
-            # List all yaml files to help debug
-            echo "Available YAML files:"
-            ls -la *.yaml 2>/dev/null || echo "No .yaml files found"
-            ls -la *.yml 2>/dev/null || echo "No .yml files found"
           fi
         done < /tmp/images/manifest-updates.txt
-      
+
       - echo "Committing and pushing changes..."
       - git add .
       - git diff --staged --stat
