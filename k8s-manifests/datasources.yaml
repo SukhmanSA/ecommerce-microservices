@@ -1,0 +1,71 @@
+grafana:
+  sidecar:
+    datasources:
+      enabled: true
+    dashboards:
+      enabled: true
+
+  additionalDataSources:
+    - name: Loki
+      type: loki
+      access: proxy
+      url: http://loki.monitoring.svc.cluster.local:3100/
+      jsonData:
+        httpHeaderName1: "X-Scope-OrgID"
+      secureJsonData:
+        httpHeaderValue1: "default"
+      isDefault: false
+
+    - name: Jaeger
+      type: jaeger
+      access: proxy
+      url: http://jaeger-query.monitoring.svc.cluster.local:16686
+      isDefault: false
+
+
+# istioctl install --set profile=demo -y
+# kubectl create namespace monitoring
+# kubectl label namespace monitoring istio-injection=enable
+# kubectl label namespace ecommerce istio-injection=enable
+# kubectl apply -f - <<EOF
+# apiVersion: v1
+# kind: ConfigMap
+# metadata:
+#   name: istio
+#   namespace: istio-system
+# data:
+#   mesh: |
+#     defaultConfig:
+#       tracing:
+#         zipkin:
+#           address: jaeger-collector.monitoring:9411
+#         sampling: 100
+#     enableTracing: true
+#   meshNetworks: 'networks: {}'
+# EOF
+# helm install minio minio/minio -n monitoring -f k8s-manifests/minio-values.yaml --create-namespace
+# helm repo add grafana https://grafana.github.io/helm-charts
+# helm repo update
+# helm upgrade --install loki grafana/loki -n monitoring -f k8s-manifests/loki-values.yaml
+# helm install promtail grafana/promtail -n monitoring -f k8s-manifests/promtail.yaml
+# helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+# helm upgrade --install promstack prometheus-community/kube-prometheus-stack   -n monitoring -f k8s-manifests/datasources.yaml
+# helm upgrade promstack prometheus-community/kube-prometheus-stack   -n monitoring -f k8s-manifests/datasources.yaml
+# helm upgrade --install jaeger jaegertracing/jaeger   -n monitoring   --set provisionDataStore.cassandra=false   --set storage.type=memory   --set allInOne.enabled=true   --set agent.enabled=false   --set collector.enabled=false   --set query.enabled=false   --set ingester.enabled=false
+# kubectl apply -f - <<EOF
+# apiVersion: v1
+# kind: ConfigMap
+# metadata:
+#   name: istio
+#   namespace: istio-system
+# data:
+#   mesh: |
+#     defaultConfig:
+#       tracing:
+#         zipkin:
+#           address: jaeger.monitoring:9411
+#         sampling: 100
+#     enableTracing: true
+# EOF
+# kubectl rollout restart deployment/istiod -n istio-system
+# kubectl apply -f k8s-manifests/

@@ -13,6 +13,8 @@ spec:
       labels:
         app: user-service
     spec:
+      serviceAccountName: adot-collector-service-account
+      automountServiceAccountToken: true
       containers:
         - name: user-service
           image: docker.io/sukhman78/ecommerce-deployment:user-service

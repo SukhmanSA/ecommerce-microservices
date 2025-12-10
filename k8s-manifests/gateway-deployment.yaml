@@ -13,6 +13,8 @@ spec:
       labels:
         app: api-gateway
     spec:
+      serviceAccountName: adot-collector-service-account
+      automountServiceAccountToken: true
       containers:
         - name: api-gateway
           image: docker.io/sukhman78/ecommerce-deployment:api-gateway
@@ -23,4 +25,42 @@ spec:
               value: kubernetes
             - name: EUREKA_CLIENT_SERVICEURL_DEFAULTZONE
               value: http://discovery-service:8761/eureka
+            # CRITICAL: Java Agent Configuration
+            - name: JAVA_TOOL_OPTIONS
+              value: >
+                -javaagent:/otel/opentelemetry-javaagent.jar
+                -Dotel.service.name=cart-service
+                -Dotel.traces.exporter=otlp
+                -Dotel.metrics.exporter=none
+                -Dotel.logs.exporter=none
+                -Dotel.exporter.otlp.endpoint=http://adot-collector.ecommerce:4318
+                -Dotel.exporter.otlp.protocol=http/protobuf
+                -Dotel.resource.attributes=service.name=cart-service,k8s.namespace=ecommerce,k8s.deployment.name=cart-service
+                -Dotel.instrumentation.log4j.enabled=false
+                -Dotel.instrumentation.logback-appender.enabled=false
+                -Dotel.traces.sampler=always_on
+                -Dotel.javaagent.debug=false
+          volumeMounts:
+            - name: opentelemetry-javaagent
+              mountPath: /otel
+              readOnly: true
+      initContainers:
+        # Download OpenTelemetry Java Agent
+        - name: download-javaagent
+          image: curlimages/curl:latest
+          command: 
+            - sh
+            - -c
+            - |
+              echo "Downloading OpenTelemetry Java Agent..."
+              curl -L https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/latest/download/opentelemetry-javaagent.jar \
+                -o /otel/opentelemetry-javaagent.jar
+              echo "Download complete. File size:"
+              ls -lh /otel/opentelemetry-javaagent.jar
+          volumeMounts:
+            - name: opentelemetry-javaagent
+              mountPath: /otel
+      volumes:
+        - name: opentelemetry-javaagent
+          emptyDir: {}
 

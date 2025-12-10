@@ -28,12 +28,10 @@ public class CartService {
 
     @Transactional
     public Cart addToCart(Long userId, List<AddToCartRequest> items) {
-        // Validate input
         if (items == null || items.isEmpty()) {
             throw new RuntimeException("Cart items cannot be empty");
         }
 
-        // Find or create cart
         Cart cart = cartRepository.findByUserId(userId)
                 .orElseGet(() -> {
                     Cart newCart = Cart.builder()
@@ -46,7 +44,7 @@ public class CartService {
         List<String> errors = new ArrayList<>();
         List<String> successes = new ArrayList<>();
 
-        // Validate all products first
+
         for (AddToCartRequest req : items) {
             try {
                 if (req.getQuantity() <= 0) {
@@ -66,7 +64,6 @@ public class CartService {
                     continue;
                 }
 
-                // All validations passed
                 successes.add("Product " + product.getName() + " validated successfully");
 
             } catch (FeignException.NotFound e) {
@@ -78,14 +75,12 @@ public class CartService {
             }
         }
 
-        // If any validation errors, throw exception
         if (!errors.isEmpty()) {
             String errorMessage = "Validation failed: " + String.join("; ", errors);
             log.error("Cart validation failed for user {}: {}", userId, errorMessage);
             throw new RuntimeException(errorMessage);
         }
 
-        // Process all items
         for (AddToCartRequest req : items) {
             try {
                 ProductDTO product = productClient.getProduct(req.getProductId());
@@ -93,11 +88,9 @@ public class CartService {
                 Optional<CartItem> existingItem = cart.findItemByProductId(req.getProductId());
 
                 if (existingItem.isPresent()) {
-                    // Update existing item
                     CartItem item = existingItem.get();
                     int newQuantity = item.getQuantity() + req.getQuantity();
 
-                    // Double-check stock (in case of concurrent updates)
                     if (product.getStock() < newQuantity) {
                         throw new RuntimeException("Cannot add more items of " + product.getName() +
                                 ". Available stock: " + product.getStock());

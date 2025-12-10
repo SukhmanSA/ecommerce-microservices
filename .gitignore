@@ -2,3 +2,10 @@ node_modules
 .github
 .vscode
 codebuild_key.pub
+istio-1.28.0
+aws
+build.sh
+terraform
+buildspec.yaml
+x-ray.yaml
+eks-cloudformation.yaml
