@@ -110,12 +110,12 @@ jobs:
 
           echo "Updating image tags..."
 
-          sed -i "s|user-service:.*|user-service:${SHA}|g" user-deployment.yaml
-          sed -i "s|products-service:.*|products-service:${SHA}|g" products-deployment.yaml
-          sed -i "s|cart-service:.*|cart-service:${SHA}|g" cart-deployment.yaml
-          sed -i "s|order-service:.*|order-service:${SHA}|g" order-deployment.yaml
-          sed -i "s|discovery-service:.*|discovery-service:${SHA}|g" discovery-deployment.yaml
-          sed -i "s|api-gateway:.*|api-gateway:${SHA}|g" gateway-deployment.yaml
+          sed -i "s|image: .*/user-service:.*|image: ${DOCKER_REPO}:user-service-${SHA}|g" user-deployment.yaml
+          sed -i "s|image: .*/products-service:.*|image: ${DOCKER_REPO}:products-service-${SHA}|g" products-deployment.yaml
+          sed -i "s|image: .*/cart-service:.*|image: ${DOCKER_REPO}:cart-service-${SHA}|g" cart-deployment.yaml
+          sed -i "s|image: .*/order-service:.*|image: ${DOCKER_REPO}:order-service-${SHA}|g" order-deployment.yaml
+          sed -i "s|image: .*/discovery-service:.*|image: ${DOCKER_REPO}:discovery-service-${SHA}|g" discovery-deployment.yaml
+          sed -i "s|image: .*/api-gateway:.*|image: ${DOCKER_REPO}:api-gateway-${SHA}|g" gateway-deployment.yaml
 
           git config user.name "github-actions"
           git config user.email "actions@github.com"
@@ -123,3 +123,4 @@ jobs:
           git add .
           git commit -m "Update image tags to $SHA" || echo "No changes to commit"
           git push
+
