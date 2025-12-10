@@ -2,15 +2,12 @@ package com.sukhman.cartservice.service;
 
 import com.sukhman.cartservice.DTO.AddToCartRequest;
 import com.sukhman.cartservice.DTO.ProductDTO;
+import com.sukhman.cartservice.DTO.ProductCacheDTO;
 import com.sukhman.cartservice.feignClients.ProductClient;
 import com.sukhman.cartservice.models.Cart;
 import com.sukhman.cartservice.models.CartItem;
 import com.sukhman.cartservice.repo.CartRepo;
-import feign.FeignException;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.cache.annotation.Cacheable;
-import org.springframework.cache.annotation.CachePut;
-import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,7 +16,6 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.TimeUnit;
 
 @Slf4j
 @Service
@@ -47,16 +43,52 @@ public class CartService {
         return PRODUCT_CACHE_PREFIX + productId;
     }
     
-    @Cacheable(value = "product", key = "#productId", unless = "#result == null")
+    private ProductCacheDTO convertToCacheDTO(ProductDTO productDTO) {
+        return ProductCacheDTO.builder()
+                .id(productDTO.getId())
+                .name(productDTO.getName())
+                .description(productDTO.getDescription())
+                .price(productDTO.getPrice())
+                .stock(productDTO.getStock())
+                .build();
+    }
+    
+    private ProductCacheDTO getProductFromCache(Long productId) {
+        try {
+            return (ProductCacheDTO) redisTemplate.opsForValue().get(getProductCacheKey(productId));
+        } catch (Exception e) {
+            log.warn("Error reading product {} from cache: {}", productId, e.getMessage());
+            return null;
+        }
+    }
+    
+    private void cacheProduct(Long productId, ProductCacheDTO productCacheDTO) {
+        try {
+            redisTemplate.opsForValue().set(
+                getProductCacheKey(productId), 
+                productCacheDTO, 
+                Duration.ofMinutes(PRODUCT_CACHE_TTL)
+            );
+        } catch (Exception e) {
+            log.warn("Error caching product {}: {}", productId, e.getMessage());
+        }
+    }
+
     public ProductDTO getProductWithCache(Long productId) {
         try {
+            // Try cache first
+            ProductCacheDTO cachedProduct = getProductFromCache(productId);
+            if (cachedProduct != null) {
+                log.debug("Cache hit for product: {}", productId);
+                return convertToProductDTO(cachedProduct);
+            }
+            
+            // Fetch from product service
+            log.debug("Cache miss for product: {}, fetching from service", productId);
             ProductDTO product = productClient.getProduct(productId);
             if (product != null) {
-                redisTemplate.opsForValue().set(
-                    getProductCacheKey(productId), 
-                    product, 
-                    Duration.ofMinutes(PRODUCT_CACHE_TTL)
-                );
+                // Cache the product as DTO
+                cacheProduct(productId, convertToCacheDTO(product));
             }
             return product;
         } catch (Exception e) {
@@ -65,39 +97,30 @@ public class CartService {
         }
     }
     
-    @Cacheable(value = "cart", key = "#userId", unless = "#result == null")
-    public Optional<Cart> getCartWithCache(Long userId) {
-        Optional<Cart> cart = cartRepository.findByUserId(userId);
-        cart.ifPresent(c -> {
-            redisTemplate.opsForValue().set(
-                getCartCacheKey(userId),
-                c,
-                Duration.ofMinutes(CART_CACHE_TTL)
-            );
-        });
-        return cart;
+    private ProductDTO convertToProductDTO(ProductCacheDTO cacheDTO) {
+        ProductDTO dto = new ProductDTO();
+        dto.setId(cacheDTO.getId());
+        dto.setName(cacheDTO.getName());
+        dto.setDescription(cacheDTO.getDescription());
+        dto.setPrice(cacheDTO.getPrice());
+        dto.setStock(cacheDTO.getStock());
+        return dto;
     }
 
     @Transactional
-    @CachePut(value = "cart", key = "#userId")
     public Cart addToCart(Long userId, List<AddToCartRequest> items) {
         if (items == null || items.isEmpty()) {
             throw new RuntimeException("Cart items cannot be empty");
         }
 
-        // Try to get from cache first
-        Cart cart = (Cart) redisTemplate.opsForValue().get(getCartCacheKey(userId));
-        
-        if (cart == null) {
-            cart = cartRepository.findByUserId(userId)
-                    .orElseGet(() -> {
-                        Cart newCart = Cart.builder()
-                                .userId(userId)
-                                .build();
-                        log.info("Creating new cart for user: {}", userId);
-                        return cartRepository.save(newCart);
-                    });
-        }
+        Cart cart = cartRepository.findByUserId(userId)
+                .orElseGet(() -> {
+                    Cart newCart = Cart.builder()
+                            .userId(userId)
+                            .build();
+                    log.info("Creating new cart for user: {}", userId);
+                    return cartRepository.save(newCart);
+                });
 
         List<String> errors = new ArrayList<>();
         List<String> successes = new ArrayList<>();
@@ -110,11 +133,7 @@ public class CartService {
                     continue;
                 }
 
-                // Try cache first for product
-                ProductDTO product = (ProductDTO) redisTemplate.opsForValue().get(getProductCacheKey(req.getProductId()));
-                if (product == null) {
-                    product = getProductWithCache(req.getProductId());
-                }
+                ProductDTO product = getProductWithCache(req.getProductId());
                 
                 if (product == null) {
                     errors.add("Product not found: " + req.getProductId());
@@ -181,36 +200,33 @@ public class CartService {
         // Save to database
         Cart savedCart = cartRepository.save(cart);
         
-        // Update cache
-        redisTemplate.opsForValue().set(
-            getCartCacheKey(userId),
-            savedCart,
-            Duration.ofMinutes(CART_CACHE_TTL)
-        );
+        // Clear cart cache (we'll fetch fresh next time)
+        try {
+            redisTemplate.delete(getCartCacheKey(userId));
+        } catch (Exception e) {
+            log.warn("Error clearing cart cache for user {}: {}", userId, e.getMessage());
+        }
         
-        // Clear product cache for updated products
-        items.forEach(item -> 
-            redisTemplate.delete(getProductCacheKey(item.getProductId()))
-        );
+        // Clear product caches for updated products
+        items.forEach(item -> {
+            try {
+                redisTemplate.delete(getProductCacheKey(item.getProductId()));
+            } catch (Exception e) {
+                log.warn("Error clearing product cache for {}: {}", item.getProductId(), e.getMessage());
+            }
+        });
         
         log.info("Successfully updated cart for user {} with {} items", userId, items.size());
         return savedCart;
     }
 
     public Optional<Cart> getCart(Long userId) {
-        // Try cache first
-        Cart cachedCart = (Cart) redisTemplate.opsForValue().get(getCartCacheKey(userId));
-        if (cachedCart != null) {
-            log.debug("Cache hit for cart: {}", userId);
-            return Optional.of(cachedCart);
-        }
-        
-        log.debug("Cache miss for cart: {}", userId);
-        return getCartWithCache(userId);
+        // Don't cache Cart entities directly - too complex with Hibernate
+        // Just fetch from DB
+        return cartRepository.findByUserId(userId);
     }
 
     @Transactional
-    @CachePut(value = "cart", key = "#userId")
     public Cart updateCartItem(Long userId, Long productId, int quantity) {
         Cart cart = cartRepository.findByUserId(userId)
                 .orElseThrow(() -> new RuntimeException("Cart not found for user: " + userId));
@@ -218,11 +234,11 @@ public class CartService {
         if (quantity > 0) {
             try {
                 ProductDTO product = getProductWithCache(productId);
-                if (product.getStock() < quantity) {
+                if (product != null && product.getStock() < quantity) {
                     throw new RuntimeException("Insufficient stock. Available: " + product.getStock());
                 }
             } catch (Exception e) {
-                log.warn("Could not validate stock during update, proceeding anyway");
+                log.warn("Could not validate stock during update: {}", e.getMessage());
             }
         }
 
@@ -237,21 +253,18 @@ public class CartService {
 
         Cart savedCart = cartRepository.save(cart);
         
-        // Update cache
-        redisTemplate.opsForValue().set(
-            getCartCacheKey(userId),
-            savedCart,
-            Duration.ofMinutes(CART_CACHE_TTL)
-        );
-        
-        // Clear product cache
-        redisTemplate.delete(getProductCacheKey(productId));
+        // Clear caches
+        try {
+            redisTemplate.delete(getCartCacheKey(userId));
+            redisTemplate.delete(getProductCacheKey(productId));
+        } catch (Exception e) {
+            log.warn("Error clearing caches: {}", e.getMessage());
+        }
         
         return savedCart;
     }
 
     @Transactional
-    @CacheEvict(value = "cart", key = "#userId")
     public void removeFromCart(Long userId, Long productId) {
         Cart cart = cartRepository.findByUserId(userId)
                 .orElseThrow(() -> new RuntimeException("Cart not found for user: " + userId));
@@ -260,29 +273,40 @@ public class CartService {
 
         cartRepository.save(cart);
         
-        // Clear cache
-        redisTemplate.delete(getCartCacheKey(userId));
-        redisTemplate.delete(getProductCacheKey(productId));
+        // Clear caches
+        try {
+            redisTemplate.delete(getCartCacheKey(userId));
+            redisTemplate.delete(getProductCacheKey(productId));
+        } catch (Exception e) {
+            log.warn("Error clearing caches: {}", e.getMessage());
+        }
         
         log.info("Removed product {} from cart for user {}", productId, userId);
     }
 
     @Transactional
-    @CacheEvict(value = "cart", key = "#userId")
     public void clearCart(Long userId) {
         Cart cart = cartRepository.findByUserId(userId)
                 .orElseThrow(() -> new RuntimeException("Cart not found for user: " + userId));
 
         // Clear product caches for items in cart
-        cart.getItems().forEach(item -> 
-            redisTemplate.delete(getProductCacheKey(item.getProductId()))
-        );
+        cart.getItems().forEach(item -> {
+            try {
+                redisTemplate.delete(getProductCacheKey(item.getProductId()));
+            } catch (Exception e) {
+                log.warn("Error clearing product cache for {}: {}", item.getProductId(), e.getMessage());
+            }
+        });
         
         cart.getItems().clear();
         cartRepository.save(cart);
         
         // Clear cart cache
-        redisTemplate.delete(getCartCacheKey(userId));
+        try {
+            redisTemplate.delete(getCartCacheKey(userId));
+        } catch (Exception e) {
+            log.warn("Error clearing cart cache: {}", e.getMessage());
+        }
         
         log.info("Cleared cart for user {}", userId);
     }

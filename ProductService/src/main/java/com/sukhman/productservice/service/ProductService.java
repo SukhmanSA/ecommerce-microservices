@@ -1,16 +1,17 @@
 package com.sukhman.productservice.service;
 
+import com.sukhman.productservice.model.ProductCacheDTO;
 import com.sukhman.productservice.model.Product;
 import com.sukhman.productservice.repo.ProductRepo;
-import org.springframework.cache.annotation.CacheEvict;
-import org.springframework.cache.annotation.CachePut;
-import org.springframework.cache.annotation.Cacheable;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 public class ProductService {
     private final ProductRepo productRepo;
@@ -25,35 +26,115 @@ public class ProductService {
         this.redisTemplate = redisTemplate;
     }
     
-    @Cacheable(value = "products", key = "'all'")
-    public List<Product> getAllProducts() {
-        List<Product> products = productRepo.findAll();
-        // Cache individual products as well
-        products.forEach(product -> 
-            redisTemplate.opsForValue().set(
-                PRODUCT_CACHE_PREFIX + product.getId(),
-                product,
-                Duration.ofMinutes(CACHE_TTL)
-            )
-        );
-        return products;
+    private ProductCacheDTO convertToCacheDTO(Product product) {
+        return ProductCacheDTO.builder()
+                .id(product.getId())
+                .name(product.getName())
+                .description(product.getDescription())
+                .price(product.getPrice())
+                .stock(product.getStock())
+                .build();
     }
     
-    @Cacheable(value = "product", key = "#id")
+    private List<ProductCacheDTO> convertToCacheDTOs(List<Product> products) {
+        return products.stream()
+                .map(this::convertToCacheDTO)
+                .collect(Collectors.toList());
+    }
+    
+    public List<Product> getAllProducts() {
+        try {
+            // Try cache first
+            List<ProductCacheDTO> cachedProducts = (List<ProductCacheDTO>) redisTemplate.opsForValue().get(ALL_PRODUCTS_CACHE_KEY);
+            if (cachedProducts != null) {
+                log.debug("Cache hit for all products");
+                // Convert back to entities
+                return cachedProducts.stream()
+                        .map(this::convertToEntity)
+                        .collect(Collectors.toList());
+            }
+            
+            log.debug("Cache miss for all products");
+            List<Product> products = productRepo.findAll();
+            
+            // Cache as DTOs
+            List<ProductCacheDTO> cacheDTOs = convertToCacheDTOs(products);
+            redisTemplate.opsForValue().set(
+                ALL_PRODUCTS_CACHE_KEY,
+                cacheDTOs,
+                Duration.ofMinutes(CACHE_TTL)
+            );
+            
+            // Also cache individual products
+            products.forEach(product -> {
+                try {
+                    redisTemplate.opsForValue().set(
+                        PRODUCT_CACHE_PREFIX + product.getId(),
+                        convertToCacheDTO(product),
+                        Duration.ofMinutes(CACHE_TTL)
+                    );
+                } catch (Exception e) {
+                    log.warn("Failed to cache product {}: {}", product.getId(), e.getMessage());
+                }
+            });
+            
+            return products;
+        } catch (Exception e) {
+            log.error("Error getting all products: {}", e.getMessage());
+            // Fall back to DB
+            return productRepo.findAll();
+        }
+    }
+    
+    private Product convertToEntity(ProductCacheDTO dto) {
+        Product product = new Product();
+        product.setId(dto.getId());
+        product.setName(dto.getName());
+        product.setDescription(dto.getDescription());
+        product.setPrice(dto.getPrice());
+        product.setStock(dto.getStock());
+        return product;
+    }
+    
     public Product getProduct(Long id) {
-        return productRepo.findById(id).orElseThrow();
+        try {
+            // Try cache first
+            ProductCacheDTO cachedProduct = (ProductCacheDTO) redisTemplate.opsForValue().get(PRODUCT_CACHE_PREFIX + id);
+            if (cachedProduct != null) {
+                log.debug("Cache hit for product: {}", id);
+                return convertToEntity(cachedProduct);
+            }
+            
+            log.debug("Cache miss for product: {}", id);
+            Product product = productRepo.findById(id).orElseThrow();
+            
+            // Cache as DTO
+            redisTemplate.opsForValue().set(
+                PRODUCT_CACHE_PREFIX + id,
+                convertToCacheDTO(product),
+                Duration.ofMinutes(CACHE_TTL)
+            );
+            
+            return product;
+        } catch (Exception e) {
+            log.error("Error getting product {}: {}", id, e.getMessage());
+            // Fall back to DB
+            return productRepo.findById(id).orElseThrow();
+        }
     }
 
-    @CachePut(value = "product", key = "#product.id")
-    @CacheEvict(value = "products", key = "'all'")
     public Product addProduct(Product product) {
         Product saved = productRepo.save(product);
-        redisTemplate.delete(ALL_PRODUCTS_CACHE_KEY);
+        
+        // Clear cache
+        try {
+            redisTemplate.delete(ALL_PRODUCTS_CACHE_KEY);
+        } catch (Exception e) {
+            log.warn("Failed to clear products cache: {}", e.getMessage());
+        }
         return saved;
     }
 
-    @CachePut(value = "product", key = "#id")
-    @CacheEvict(value = "products", key = "'all'")
     public Product updateProduct(Long id, Product product) {
         Product existing = getProduct(id);
         
@@ -71,14 +152,26 @@ public class ProductService {
         }
         
         Product saved = productRepo.save(existing);
-        redisTemplate.delete(ALL_PRODUCTS_CACHE_KEY);
+        
+        // Clear caches
+        try {
+            redisTemplate.delete(ALL_PRODUCTS_CACHE_KEY);
+            redisTemplate.delete(PRODUCT_CACHE_PREFIX + id);
+        } catch (Exception e) {
+            log.warn("Failed to clear caches: {}", e.getMessage());
+        }
         return saved;
     }
 
-    @CacheEvict(value = {"product", "products"}, allEntries = true)
     public void deleteProduct(Long id) {
         productRepo.deleteById(id);
-        redisTemplate.delete(ALL_PRODUCTS_CACHE_KEY);
-        redisTemplate.delete(PRODUCT_CACHE_PREFIX + id);
+        
+        // Clear caches
+        try {
+            redisTemplate.delete(ALL_PRODUCTS_CACHE_KEY);
+            redisTemplate.delete(PRODUCT_CACHE_PREFIX + id);
+        } catch (Exception e) {
+            log.warn("Failed to delete product cache: {}", e.getMessage());
+        }
     }
 }
