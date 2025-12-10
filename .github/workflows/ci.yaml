@@ -110,12 +110,12 @@ jobs:
 
           echo "Updating image tags..."
 
-          sed -i "s|image: .*/user-service:.*|image: ${DOCKER_REPO}:user-service-${SHA}|g" user-deployment.yaml
-          sed -i "s|image: .*/products-service:.*|image: ${DOCKER_REPO}:products-service-${SHA}|g" products-deployment.yaml
-          sed -i "s|image: .*/cart-service:.*|image: ${DOCKER_REPO}:cart-service-${SHA}|g" cart-deployment.yaml
-          sed -i "s|image: .*/order-service:.*|image: ${DOCKER_REPO}:order-service-${SHA}|g" order-deployment.yaml
-          sed -i "s|image: .*/discovery-service:.*|image: ${DOCKER_REPO}:discovery-service-${SHA}|g" discovery-deployment.yaml
-          sed -i "s|image: .*/api-gateway:.*|image: ${DOCKER_REPO}:api-gateway-${SHA}|g" gateway-deployment.yaml
+          sed -i "s|\(image: .*ecommerce-deployment:user-service-\).*|\1${SHA}|g" user-deployment.yaml
+          sed -i "s|\(image: .*ecommerce-deployment:products-service-\).*|\1${SHA}|g" products-deployment.yaml
+          sed -i "s|\(image: .*ecommerce-deployment:cart-service-\).*|\1${SHA}|g" cart-deployment.yaml
+          sed -i "s|\(image: .*ecommerce-deployment:order-service-\).*|\1${SHA}|g" order-deployment.yaml
+          sed -i "s|\(image: .*ecommerce-deployment:discovery-service-\).*|\1${SHA}|g" discovery-deployment.yaml
+          sed -i "s|\(image: .*ecommerce-deployment:api-gateway-\).*|\1${SHA}|g" gateway-deployment.yaml
 
           git config user.name "github-actions"
           git config user.email "actions@github.com"
