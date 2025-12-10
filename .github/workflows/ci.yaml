@@ -105,7 +105,7 @@ jobs:
 
       - name: Update Kubernetes manifests
         run: |
-          git clone https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/SukhmanSA/ecommerce-K8s-manifests.git
+          git clone https://x-access-token:${{ secrets.GH_TOKEN }}@github.com/SukhmanSA/ecommerce-K8s-manifests.git
           cd ecommerce-K8s-manifests
 
           echo "Updating image tags..."
