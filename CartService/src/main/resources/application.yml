@@ -18,7 +18,29 @@ spring:
       ddl-auto: update
     show-sql: true
     database-platform: org.hibernate.dialect.PostgreSQLDialect
-    
+  redis:
+    host: redis.ecommerce.svc.cluster.local
+    port: 6379
+    password: ${REDIS_PASSWORD:password123}
+    timeout: 5000ms
+    lettuce:
+      pool:
+        max-active: 8
+        max-idle: 8
+        min-idle: 0
+        max-wait: -1ms
+  cache:
+    type: redis
+    redis:
+      time-to-live: 1800000  # 30 minutes in milliseconds
+      cache-null-values: false
+      key-prefix: cache
+      use-key-prefix: true
+  data:
+    redis:
+      repositories:
+        enabled: false  # Disable Spring Data Redis repositories if not needed
+
 eureka:
   instance:
     lease-renewal-interval-in-seconds: 30
@@ -28,6 +50,7 @@ eureka:
   client:
     service-url:
       defaultZone: http://discovery-service:8761/eureka/
+
 
 management:
   endpoints:
