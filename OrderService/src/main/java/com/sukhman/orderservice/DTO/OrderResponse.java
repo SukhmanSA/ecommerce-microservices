@@ -1,5 +1,6 @@
 package com.sukhman.orderservice.DTO;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.sukhman.orderservice.models.OrderStatus;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -10,6 +11,7 @@ import java.util.List;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class OrderResponse {
     private Long id;
     private String orderNumber;

@@ -38,7 +38,13 @@ spring:
     redis:
       repositories:
         enabled: false  # Disable Spring Data Redis repositories if not needed
-
+  jackson:
+    deserialization:
+      fail-on-unknown-properties: false
+    serialization:
+      fail-on-empty-beans: false
+    default-property-inclusion: non_null
+    
 eureka:
   instance:
     lease-renewal-interval-in-seconds: 30
