@@ -13,90 +13,77 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Optional;
+import java.util.*;
 
 @Slf4j
 @Service
 public class CartService {
+
     private final CartRepo cartRepository;
     private final ProductClient productClient;
     private final RedisTemplate<String, Object> redisTemplate;
-    
+
     private static final String CART_CACHE_PREFIX = "cart:";
     private static final String PRODUCT_CACHE_PREFIX = "product:";
-    private static final long CART_CACHE_TTL = 30; // minutes
+    private static final long CART_CACHE_TTL = 30;   // minutes
     private static final long PRODUCT_CACHE_TTL = 5; // minutes
 
-    public CartService(CartRepo cartRepository, ProductClient productClient, RedisTemplate<String, Object> redisTemplate) {
+    public CartService(
+            CartRepo cartRepository,
+            ProductClient productClient,
+            RedisTemplate<String, Object> redisTemplate
+    ) {
         this.cartRepository = cartRepository;
         this.productClient = productClient;
         this.redisTemplate = redisTemplate;
     }
-    
+
+    /* --------------------------- CACHE KEYS --------------------------- */
+
     private String getCartCacheKey(Long userId) {
         return CART_CACHE_PREFIX + userId;
     }
-    
+
     private String getProductCacheKey(Long productId) {
         return PRODUCT_CACHE_PREFIX + productId;
     }
-    
-    private ProductCacheDTO convertToCacheDTO(ProductDTO productDTO) {
-        return ProductCacheDTO.builder()
-                .id(productDTO.getId())
-                .name(productDTO.getName())
-                .description(productDTO.getDescription())
-                .price(productDTO.getPrice())
-                .stock(productDTO.getStock())
-                .build();
-    }
-    
-    private ProductCacheDTO getProductFromCache(Long productId) {
-        try {
-            return (ProductCacheDTO) redisTemplate.opsForValue().get(getProductCacheKey(productId));
-        } catch (Exception e) {
-            log.warn("Error reading product {} from cache: {}", productId, e.getMessage());
-            return null;
+
+    /* --------------------------- SAFE DESERIALIZATION --------------------------- */
+
+    private ProductCacheDTO convertCacheResult(Object obj) {
+        if (obj == null) return null;
+
+        // Already a DTO
+        if (obj instanceof ProductCacheDTO dto) {
+            return dto;
         }
-    }
-    
-    private void cacheProduct(Long productId, ProductCacheDTO productCacheDTO) {
-        try {
-            redisTemplate.opsForValue().set(
-                getProductCacheKey(productId), 
-                productCacheDTO, 
-                Duration.ofMinutes(PRODUCT_CACHE_TTL)
-            );
-        } catch (Exception e) {
-            log.warn("Error caching product {}: {}", productId, e.getMessage());
+
+        // Redis JSON deserialized to LinkedHashMap
+        if (obj instanceof Map<?, ?> map) {
+            return ProductCacheDTO.builder()
+                    .id(Long.valueOf(map.get("id").toString()))
+                    .name((String) map.get("name"))
+                    .description((String) map.get("description"))
+                    .price(Double.valueOf(map.get("price").toString()))
+                    .stock(Integer.valueOf(map.get("stock").toString()))
+                    .build();
         }
+
+        throw new IllegalArgumentException("Unexpected cached type: " + obj.getClass());
     }
 
-    public ProductDTO getProductWithCache(Long productId) {
-        try {
-            // Try cache first
-            ProductCacheDTO cachedProduct = getProductFromCache(productId);
-            if (cachedProduct != null) {
-                log.debug("Cache hit for product: {}", productId);
-                return convertToProductDTO(cachedProduct);
-            }
-            
-            // Fetch from product service
-            log.debug("Cache miss for product: {}, fetching from service", productId);
-            ProductDTO product = productClient.getProduct(productId);
-            if (product != null) {
-                // Cache the product as DTO
-                cacheProduct(productId, convertToCacheDTO(product));
-            }
-            return product;
-        } catch (Exception e) {
-            log.error("Error fetching product {}: {}", productId, e.getMessage());
-            return null;
-        }
+    /* --------------------------- DTO CONVERTERS --------------------------- */
+
+    private ProductCacheDTO convertToCacheDTO(ProductDTO dto) {
+        return ProductCacheDTO.builder()
+                .id(dto.getId())
+                .name(dto.getName())
+                .description(dto.getDescription())
+                .price(dto.getPrice())
+                .stock(dto.getStock())
+                .build();
     }
-    
+
     private ProductDTO convertToProductDTO(ProductCacheDTO cacheDTO) {
         ProductDTO dto = new ProductDTO();
         dto.setId(cacheDTO.getId());
@@ -106,6 +93,56 @@ public class CartService {
         dto.setStock(cacheDTO.getStock());
         return dto;
     }
+
+    /* --------------------------- PRODUCT CACHE LOGIC --------------------------- */
+
+    private ProductCacheDTO getProductFromCache(Long productId) {
+        try {
+            Object raw = redisTemplate.opsForValue().get(getProductCacheKey(productId));
+            return convertCacheResult(raw);
+
+        } catch (Exception e) {
+            log.warn("Error reading product {} from cache: {}", productId, e.getMessage());
+            return null;
+        }
+    }
+
+    private void cacheProduct(Long productId, ProductCacheDTO dto) {
+        try {
+            redisTemplate.opsForValue().set(
+                    getProductCacheKey(productId),
+                    dto,
+                    Duration.ofMinutes(PRODUCT_CACHE_TTL)
+            );
+        } catch (Exception e) {
+            log.warn("Error caching product {}: {}", productId, e.getMessage());
+        }
+    }
+
+    public ProductDTO getProductWithCache(Long productId) {
+        try {
+            ProductCacheDTO cached = getProductFromCache(productId);
+            if (cached != null) {
+                log.debug("Cache hit for product {}", productId);
+                return convertToProductDTO(cached);
+            }
+
+            log.debug("Cache miss for product {}, fetching...", productId);
+
+            ProductDTO product = productClient.getProduct(productId);
+            if (product != null) {
+                cacheProduct(productId, convertToCacheDTO(product));
+            }
+
+            return product;
+
+        } catch (Exception e) {
+            log.error("Error fetching product {}: {}", productId, e.getMessage());
+            return null;
+        }
+    }
+
+    /* --------------------------- CART LOGIC --------------------------- */
 
     @Transactional
     public Cart addToCart(Long userId, List<AddToCartRequest> items) {
@@ -118,35 +155,31 @@ public class CartService {
                     Cart newCart = Cart.builder()
                             .userId(userId)
                             .build();
-                    log.info("Creating new cart for user: {}", userId);
+                    log.info("Creating new cart for user {}", userId);
                     return cartRepository.save(newCart);
                 });
 
         List<String> errors = new ArrayList<>();
-        List<String> successes = new ArrayList<>();
 
-        // Validate all items first
+        /* ------------ VALIDATE ITEMS FIRST ------------ */
+
         for (AddToCartRequest req : items) {
             try {
                 if (req.getQuantity() <= 0) {
-                    errors.add("Invalid quantity for product " + req.getProductId() + ": " + req.getQuantity());
+                    errors.add("Invalid quantity for product " + req.getProductId());
                     continue;
                 }
 
                 ProductDTO product = getProductWithCache(req.getProductId());
-                
+
                 if (product == null) {
                     errors.add("Product not found: " + req.getProductId());
                     continue;
                 }
 
                 if (product.getStock() < req.getQuantity()) {
-                    errors.add("Insufficient stock for product " + product.getName() +
-                            ". Available: " + product.getStock() + ", Requested: " + req.getQuantity());
-                    continue;
+                    errors.add("Insufficient stock for product " + product.getName());
                 }
-
-                successes.add("Product " + product.getName() + " validated successfully");
 
             } catch (Exception e) {
                 errors.add("Error validating product " + req.getProductId() + ": " + e.getMessage());
@@ -154,160 +187,99 @@ public class CartService {
         }
 
         if (!errors.isEmpty()) {
-            String errorMessage = "Validation failed: " + String.join("; ", errors);
-            log.error("Cart validation failed for user {}: {}", userId, errorMessage);
-            throw new RuntimeException(errorMessage);
+            throw new RuntimeException(String.join("; ", errors));
         }
 
-        // Process valid items
+        /* ------------ PROCESS ITEMS ------------ */
+
         for (AddToCartRequest req : items) {
-            try {
-                ProductDTO product = getProductWithCache(req.getProductId());
+            ProductDTO product = getProductWithCache(req.getProductId());
 
-                Optional<CartItem> existingItem = cart.findItemByProductId(req.getProductId());
+            Optional<CartItem> existing = cart.findItemByProductId(req.getProductId());
 
-                if (existingItem.isPresent()) {
-                    CartItem item = existingItem.get();
-                    int newQuantity = item.getQuantity() + req.getQuantity();
+            if (existing.isPresent()) {
+                CartItem item = existing.get();
+                int newQty = item.getQuantity() + req.getQuantity();
 
-                    if (product.getStock() < newQuantity) {
-                        throw new RuntimeException("Cannot add more items of " + product.getName() +
-                                ". Available stock: " + product.getStock());
-                    }
-
-                    item.setQuantity(newQuantity);
-                    log.debug("Updated quantity for product {} to {}", req.getProductId(), newQuantity);
-                } else {
-                    // Add new item
-                    CartItem newItem = CartItem.builder()
-                            .productId(req.getProductId())
-                            .quantity(req.getQuantity())
-                            .price(product.getPrice())
-                            .build();
-                    cart.addItem(newItem);
-                    log.debug("Added new item for product {}", req.getProductId());
+                if (product.getStock() < newQty) {
+                    throw new RuntimeException("Stock too low for product " + product.getName());
                 }
 
-                log.info("Processed {} units of product {} for user {}",
-                        req.getQuantity(), req.getProductId(), userId);
+                item.setQuantity(newQty);
 
-            } catch (Exception e) {
-                log.error("Failed to process product {}: {}", req.getProductId(), e.getMessage());
-                throw new RuntimeException("Failed to add product " + req.getProductId() + " to cart: " + e.getMessage());
+            } else {
+                cart.addItem(
+                        CartItem.builder()
+                                .productId(req.getProductId())
+                                .quantity(req.getQuantity())
+                                .price(product.getPrice())
+                                .build()
+                );
             }
         }
 
-        // Save to database
-        Cart savedCart = cartRepository.save(cart);
-        
-        // Clear cart cache (we'll fetch fresh next time)
-        try {
-            redisTemplate.delete(getCartCacheKey(userId));
-        } catch (Exception e) {
-            log.warn("Error clearing cart cache for user {}: {}", userId, e.getMessage());
-        }
-        
-        // Clear product caches for updated products
-        items.forEach(item -> {
-            try {
-                redisTemplate.delete(getProductCacheKey(item.getProductId()));
-            } catch (Exception e) {
-                log.warn("Error clearing product cache for {}: {}", item.getProductId(), e.getMessage());
-            }
-        });
-        
-        log.info("Successfully updated cart for user {} with {} items", userId, items.size());
-        return savedCart;
+        Cart saved = cartRepository.save(cart);
+
+        /* ------------ CLEAR CACHE ------------ */
+        redisTemplate.delete(getCartCacheKey(userId));
+        items.forEach(i -> redisTemplate.delete(getProductCacheKey(i.getProductId())));
+
+        return saved;
     }
 
     public Optional<Cart> getCart(Long userId) {
-        // Don't cache Cart entities directly - too complex with Hibernate
-        // Just fetch from DB
         return cartRepository.findByUserId(userId);
     }
 
     @Transactional
     public Cart updateCartItem(Long userId, Long productId, int quantity) {
         Cart cart = cartRepository.findByUserId(userId)
-                .orElseThrow(() -> new RuntimeException("Cart not found for user: " + userId));
-
-        if (quantity > 0) {
-            try {
-                ProductDTO product = getProductWithCache(productId);
-                if (product != null && product.getStock() < quantity) {
-                    throw new RuntimeException("Insufficient stock. Available: " + product.getStock());
-                }
-            } catch (Exception e) {
-                log.warn("Could not validate stock during update: {}", e.getMessage());
-            }
-        }
+                .orElseThrow(() -> new RuntimeException("Cart not found"));
 
         CartItem item = cart.findItemByProductId(productId)
-                .orElseThrow(() -> new RuntimeException("Item not found in cart: " + productId));
+                .orElseThrow(() -> new RuntimeException("Item not found"));
 
         if (quantity <= 0) {
             cart.removeItem(item);
         } else {
+            ProductDTO product = getProductWithCache(productId);
+            if (product != null && product.getStock() < quantity) {
+                throw new RuntimeException("Insufficient stock");
+            }
             item.setQuantity(quantity);
         }
 
-        Cart savedCart = cartRepository.save(cart);
-        
-        // Clear caches
-        try {
-            redisTemplate.delete(getCartCacheKey(userId));
-            redisTemplate.delete(getProductCacheKey(productId));
-        } catch (Exception e) {
-            log.warn("Error clearing caches: {}", e.getMessage());
-        }
-        
-        return savedCart;
+        Cart saved = cartRepository.save(cart);
+
+        redisTemplate.delete(getCartCacheKey(userId));
+        redisTemplate.delete(getProductCacheKey(productId));
+
+        return saved;
     }
 
     @Transactional
     public void removeFromCart(Long userId, Long productId) {
         Cart cart = cartRepository.findByUserId(userId)
-                .orElseThrow(() -> new RuntimeException("Cart not found for user: " + userId));
+                .orElseThrow(() -> new RuntimeException("Cart not found"));
 
         cart.findItemByProductId(productId).ifPresent(cart::removeItem);
 
         cartRepository.save(cart);
-        
-        // Clear caches
-        try {
-            redisTemplate.delete(getCartCacheKey(userId));
-            redisTemplate.delete(getProductCacheKey(productId));
-        } catch (Exception e) {
-            log.warn("Error clearing caches: {}", e.getMessage());
-        }
-        
-        log.info("Removed product {} from cart for user {}", productId, userId);
+
+        redisTemplate.delete(getCartCacheKey(userId));
+        redisTemplate.delete(getProductCacheKey(productId));
     }
 
     @Transactional
     public void clearCart(Long userId) {
         Cart cart = cartRepository.findByUserId(userId)
-                .orElseThrow(() -> new RuntimeException("Cart not found for user: " + userId));
+                .orElseThrow(() -> new RuntimeException("Cart not found"));
 
-        // Clear product caches for items in cart
-        cart.getItems().forEach(item -> {
-            try {
-                redisTemplate.delete(getProductCacheKey(item.getProductId()));
-            } catch (Exception e) {
-                log.warn("Error clearing product cache for {}: {}", item.getProductId(), e.getMessage());
-            }
-        });
-        
+        cart.getItems().forEach(i -> redisTemplate.delete(getProductCacheKey(i.getProductId())));
+
         cart.getItems().clear();
         cartRepository.save(cart);
-        
-        // Clear cart cache
-        try {
-            redisTemplate.delete(getCartCacheKey(userId));
-        } catch (Exception e) {
-            log.warn("Error clearing cart cache: {}", e.getMessage());
-        }
-        
-        log.info("Cleared cart for user {}", userId);
+
+        redisTemplate.delete(getCartCacheKey(userId));
     }
 }
