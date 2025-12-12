@@ -227,8 +227,8 @@ public class CartService {
         return saved;
     }
 
-    public Optional<Cart> getCart(Long userId) {
-        return cartRepository.findByUserId(userId);
+    public Cart getCart(Long userId) {
+        return cartRepository.findByUserId(userId).orElse(null);
     }
 
     @Transactional
