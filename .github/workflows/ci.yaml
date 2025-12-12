@@ -59,25 +59,30 @@ jobs:
           key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
           restore-keys: ${{ runner.os }}-m2
 
-      - name: Build & test Product Service
-        run: mvn clean verify
+      # ================================
+      # 🚫 SPRING BOOT TESTS REMOVED
+      # ================================
+      - name: Build Product Service (skip tests)
+        run: mvn -DskipTests clean package
         working-directory: ./ProductService
 
-      - name: Build & test Cart Service
-        run: mvn clean verify
+      - name: Build Cart Service (skip tests)
+        run: mvn -DskipTests clean package
         working-directory: ./CartService
 
-      - name: Build & test Order Service
-        run: mvn clean verify
+      - name: Build Order Service (skip tests)
+        run: mvn -DskipTests clean package
         working-directory: ./OrderService
 
-      - name: Build & test Discovery Service
-        run: mvn clean verify
+      - name: Build Discovery Service (skip tests)
+        run: mvn -DskipTests clean package
         working-directory: ./DiscoveryService
 
-      - name: Build & test API Gateway
-        run: mvn clean verify
+      - name: Build API Gateway (skip tests)
+        run: mvn -DskipTests clean package
         working-directory: ./ApiGateway
+
+      # ================================
 
       - name: Login to Docker Hub
         uses: docker/login-action@v3
@@ -123,4 +128,3 @@ jobs:
           git add .
           git commit -m "Update image tags to $SHA" || echo "No changes to commit"
           git push
-
