@@ -22,6 +22,7 @@ spring:
     host: ${ELASTICACHE_ENDPOINT}
     port: 6379
     timeout: 5000ms
+    ssl: true
     lettuce:
       pool:
         max-active: 8
