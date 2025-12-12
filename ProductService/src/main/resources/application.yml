@@ -17,9 +17,8 @@ spring:
     show-sql: true
     database-platform: org.hibernate.dialect.PostgreSQLDialect
   redis:
-    host: redis.ecommerce.svc.cluster.local
+    host: ${ELASTICACHE_ENDPOINT}
     port: 6379
-    password: ${REDIS_PASSWORD:password123}
     timeout: 5000ms
     lettuce:
       pool:
@@ -30,14 +29,14 @@ spring:
   cache:
     type: redis
     redis:
-      time-to-live: 1800000  # 30 minutes in milliseconds
+      time-to-live: 1800000
       cache-null-values: false
       key-prefix: cache
       use-key-prefix: true
   data:
     redis:
       repositories:
-        enabled: false  # Disable Spring Data Redis repositories if not needed
+        enabled: false
 
 eureka:
   instance:
